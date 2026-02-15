@@ -6,3 +6,4 @@ pytickersymbols
 streamlit
 altair<5
 six
+pure-eval
