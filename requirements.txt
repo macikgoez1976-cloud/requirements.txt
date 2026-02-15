@@ -4,4 +4,4 @@ requests
 beautifulsoup4
 pytickersymbols
 streamlit
-altair
+altair==4.2.2
