@@ -1,6 +1,8 @@
 import streamlit as st
 import main
-
+import streamlit as st
+import main
+import pandas as pd  # <--- DIESE ZEILE FEHLT NOCH!
 # Konfiguration der Seite
 st.set_page_config(page_title="Projekt Asperg", layout="wide")
 
