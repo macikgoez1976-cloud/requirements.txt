@@ -34,9 +34,11 @@ def get_sentiment_ampel(ticker):
     except: pass
     return "⚪ Keine News gefunden"
 
+# Zeile 37: Füge 'index_name' in die Klammer ein
 def run_asperg_scan(index_name):
     stock_data = PyTickerSymbols()
-    # Nutzt den Index, den du in der App auswählst
+    
+    # Zeile 40: Nutze jetzt 'index_name' statt der festen Liste
     indices = [index_name]
     hits = []
 
