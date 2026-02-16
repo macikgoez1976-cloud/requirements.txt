@@ -34,11 +34,12 @@ def get_sentiment_ampel(ticker):
     except: pass
     return "⚪ Keine News gefunden"
 
-def run_asperg_scan():
+def run_asperg_scan(index_name):
     stock_data = PyTickerSymbols()
-    # Wir scannen DAX und MDAX für maximale Trefferquote
-    indices = ["DAX", "MDAX"]
+    # Nutzt den Index, den du in der App auswählst
+    indices = [index_name]
     hits = []
+
 
     for index in indices:
         stocks = stock_data.get_stocks_by_index(index)
