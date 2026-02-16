@@ -1,4 +1,17 @@
-import streamlit as st
+import streamlit as st# --- PASSWORT-SCHUTZ ---
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+def check_password():
+    if st.sidebar.text_input("Passwort", type="password") == st.secrets["APP_PASSWORD"]:
+        st.session_state["authenticated"] = True
+    else:
+        st.warning("Bitte Passwort in der Seitenleiste eingeben.")
+
+if not st.session_state["authenticated"]:
+    check_password()
+    st.stop() # App hält hier an, wenn nicht eingeloggt
+# -----------------------
 import yfinance as yf
 import pandas as pd
 import requests
