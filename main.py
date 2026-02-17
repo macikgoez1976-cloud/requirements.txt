@@ -14,59 +14,58 @@ def send_telegram_message(message):
         pass
 
 def run_asperg_scan(index_name):
-    # Saubere XETRA-Listen für maximale Stabilität
-    dax_tickers = ["ADS.DE", "AIR.DE", "ALV.DE", "BAS.DE", "BAYN.DE", "BMW.DE", "BNR.DE", "CBK.DE", "CON.DE", "DB1.DE", "DBK.DE", "DHL.DE", "DTE.DE", "DTG.DE", "EON.DE", "FRE.DE", "HEI.DE", "HEN3.DE", "IFX.DE", "MBG.DE", "MRK.DE", "MUV2.DE", "P911.DE", "RWE.DE", "SAP.DE", "SIE.DE", "SY1.DE", "VOW3.DE", "ZAL.DE"]
-    mdax_tickers = ["HNR1.DE", "LHA.DE", "LEG.DE", "KGX.DE", "TALK.DE", "EVK.DE", "FRA.DE", "BOSS.DE", "PUM.DE", "G1A.DE", "WAF.DE", "SDF.DE"]
+    # Die stabilen .DE (XETRA) Ticker
+    dax_list = ["ADS.DE", "AIR.DE", "ALV.DE", "BAS.DE", "BAYN.DE", "BMW.DE", "BNR.DE", "CBK.DE", "CON.DE", "DB1.DE", "DBK.DE", "DHL.DE", "DTE.DE", "DTG.DE", "EON.DE", "FRE.DE", "HEI.DE", "HEN3.DE", "IFX.DE", "MBG.DE", "MRK.DE", "MUV2.DE", "P911.DE", "RWE.DE", "SAP.DE", "SIE.DE", "SY1.DE", "VOW3.DE", "ZAL.DE"]
+    mdax_list = ["HNR1.DE", "LHA.DE", "LEG.DE", "KGX.DE", "TALK.DE", "EVK.DE", "FRA.DE", "BOSS.DE", "PUM.DE", "G1A.DE", "WAF.DE", "SDF.DE", "EVT.DE", "NDX1.DE", "JUN3.DE"]
     
-    selected_tickers = dax_tickers if index_name == "DAX" else mdax_tickers
+    selected_tickers = dax_list if index_name == "DAX" else mdax_list
     hits = []
 
     for ticker in selected_tickers:
         try:
             stock = yf.Ticker(ticker)
-            # Wir schauen uns die letzten 3 Tage auf Stundenbasis an
-            hist = stock.history(period="3d", interval="1h")
+            # Wir bleiben bei '2d', da dies vorhin den Erfolg brachte
+            hist = stock.history(period="2d")
             
-            if len(hist) < 5: continue
+            if hist.empty or len(hist) < 2:
+                continue
             
+            # Die Logik vom erfolgreichen Test: Heute vs. Gestern
             current_vol = hist['Volume'].iloc[-1]
-            # Durchschnitt der letzten 15 Handelsstunden
-            avg_vol = hist['Volume'].tail(15).mean()
+            prev_vol = hist['Volume'].iloc[-2]
             
-            if avg_vol == 0: continue
-            vol_factor = round(current_vol / avg_vol, 2)
+            if prev_vol == 0: continue
+            vol_factor = round(current_vol / prev_vol, 2)
             
-            # WIRKLICHE SIGNALE: Ab 1.5x wird es interessant
+            # Signale ab 1.2x (Du kannst das später auf 2.0x erhöhen)
             if vol_factor >= 1.2:
                 zeit = datetime.now().strftime("%H:%M")
                 
-                # Status-Symbol
-                if vol_factor >= 3.0: status = "🟥" # Extrem
-                elif vol_factor >= 2.0: status = "🔥" # Hoch
-                else: status = "🟢" # Auffällig
-                
+                # Status-Icon
+                status = "🔥" if vol_factor >= 2.0 else "🟢"
                 chart_url = f"https://de.finance.yahoo.com/quote/{ticker}"
                 
-                # News abrufen
-                news = stock.news
-                title = news[0]['title'] if news else "Keine News"
+                # News (optional, falls Yahoo mitspielt)
+                try:
+                    news_title = stock.news[0]['title']
+                except:
+                    news_title = "Keine News aktuell"
                 
                 hits.append({
                     "Uhrzeit": zeit,
                     "Status": status,
                     "Aktie": f"[{ticker.replace('.DE', '')}]({chart_url})",
                     "Vol-Faktor": vol_factor,
-                    "Top-News": title
+                    "Top-News": news_title
                 })
         except:
             continue
             
     if hits:
         hits = sorted(hits, key=lambda x: x['Vol-Faktor'], reverse=True)
-        # Telegram bei echten Ausreißern (> 2.0x)
-        top_hit = hits[0]
-        if top_hit['Vol-Faktor'] >= 2.0:
-            send_telegram_message(f"🚨 Projekt Asperg Alarm! {top_hit['Aktie']} Vol: {top_hit['Vol-Faktor']}x")
+        # Kurze Telegram-Info bei Top-Hits
+        if hits[0]['Vol-Faktor'] >= 2.0:
+            send_telegram_message(f"🚀 Top-Volumen: {hits[0]['Aktie']} mit {hits[0]['Vol-Faktor']}x")
 
         for h in hits:
             h['Vol-Faktor'] = f"{h['Vol-Faktor']}x"
