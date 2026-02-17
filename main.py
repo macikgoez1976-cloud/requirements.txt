@@ -1,5 +1,4 @@
 import yfinance as yf
-from pytickersymbols import PyTickerSymbols
 import pandas as pd
 from datetime import datetime
 import requests
@@ -10,67 +9,61 @@ def send_telegram_message(message):
         token = st.secrets["TELEGRAM_BOT_TOKEN"]
         chat_id = st.secrets["TELEGRAM_CHAT_ID"]
         url = f"https://api.telegram.org/bot{token}/sendMessage"
-        params = {"chat_id": chat_id, "text": message}
-        requests.get(url, params=params, timeout=5)
+        requests.get(url, params={"chat_id": chat_id, "text": message}, timeout=5)
     except:
         pass
 
 def run_asperg_scan(index_name):
-    stock_data = PyTickerSymbols()
-    # Wir holen die Aktien für den gewählten Index
-    stocks = stock_data.get_stocks_by_index(index_name)
+    # Manuelle, saubere Listen für maximale Stabilität
+    stock_lists = {
+        "DAX": ["ADS.DE", "AIR.DE", "ALV.DE", "BAS.DE", "BAYN.DE", "BMW.DE", "CBK.DE", "CON.DE", "DB1.DE", "DBK.DE", "DPW.DE", "DTE.DE", "DTG.DE", "EON.DE", "FRE.DE", "IFX.DE", "MBG.DE", "MUV2.DE", "RWE.DE", "SAP.DE", "SIE.DE", "VOW3.DE"],
+        "MDAX": ["HNR1.DE", "LHA.DE", "LEG.DE", "KGX.DE", "TALK.DE", "EVK.DE", "FRA.DE", "BOSS.DE", "PUM.DE", "SY1.DE"],
+        "SDAX": ["SDF.DE", "BC8.DE", "PNE3.DE", "WAF.DE", "HDD.DE", "G1A.DE"]
+    }
+    
+    # Falls der Index nicht in unserer Liste ist, nehmen wir den DAX als Fallback
+    ticker_list = stock_lists.get(index_name, stock_lists["DAX"])
     hits = []
 
-    for s in stocks:
+    for ticker_symbol in ticker_list:
         try:
-            # Wir nehmen das erste verfügbare Yahoo-Symbol
-            ticker_symbol = s['symbols'][0]['yahoo']
-            name = s['name']
-            
-            # WICHTIG: Wir holen nur die allernötigsten Daten für heute & gestern
             stock = yf.Ticker(ticker_symbol)
-            hist = stock.history(period="2d", interval="1h")
+            # Wir holen 5 Tage Stunden-Daten
+            hist = stock.history(period="5d", interval="1h")
             
-            # Wenn keine Daten kommen (siehe dein Error-Log), überspringen wir sofort
-            if hist.empty or len(hist) < 2:
+            if hist.empty or len(hist) < 5:
                 continue
             
-            # Volumen der letzten Stunde vs. Durchschnitt der letzten 2 Tage
+            # Aktuelles Volumen (letzte Stunde)
             current_vol = hist['Volume'].iloc[-1]
-            avg_vol = hist['Volume'].mean()
+            # Durchschnittliches Volumen der letzten 20 Handelsstunden
+            avg_vol = hist['Volume'].tail(20).mean()
             
             if avg_vol == 0: continue
             vol_factor = round(current_vol / avg_vol, 2)
             
-            # Wir setzen die Schwelle zum Testen jetzt mal auf 1.1x 
-            # damit du DEFINITIV siehst, ob er überhaupt arbeitet.
-            if vol_factor >= 1.1:
+            # SEHR SENSIBEL: Ab 1.2x (damit du jetzt sofort Ergebnisse siehst!)
+            if vol_factor >= 1.2:
                 zeit = datetime.now().strftime("%H:%M")
-                
-                # News & Link
                 news = stock.news
                 top_news = news[0]['title'] if news else "Keine aktuellen News"
-                chart_url = f"https://de.finance.yahoo.com/quote/{ticker_symbol}"
                 
-                # Formatierung
+                # Chart Link & Status
+                chart_url = f"https://de.finance.yahoo.com/quote/{ticker_symbol}"
                 status = "🔥" if vol_factor >= 2.0 else "🟢"
-                display_name = f"[{name}]({chart_url})"
                 
                 hits.append({
                     "Uhrzeit": zeit,
                     "Status": status,
-                    "Aktie": display_name,
+                    "Aktie": f"[{ticker_symbol.replace('.DE', '')}]({chart_url})",
                     "Vol-Faktor": vol_factor,
                     "Top-News": top_news
                 })
-        except Exception as e:
-            # Wenn eine einzelne Aktie (wie RTL) hakt, einfach weitermachen
+        except:
             continue
                 
     if hits:
-        # Sortieren nach Stärke des Volumens
         hits = sorted(hits, key=lambda x: x['Vol-Faktor'], reverse=True)
-        # Für die Anzeige das 'x' anhängen
         for h in hits:
             h['Vol-Faktor'] = f"{h['Vol-Faktor']}x"
             
