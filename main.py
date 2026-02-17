@@ -11,8 +11,8 @@ def send_telegram_message(message):
         chat_id = st.secrets["TELEGRAM_CHAT_ID"]
         url = f"https://api.telegram.org/bot{token}/sendMessage?chat_id={chat_id}&text={message}"
         requests.get(url)
-    except Exception as e:
-        print(f"Telegram Fehler: {e}")
+    except:
+        pass
 
 def run_asperg_scan(index_name):
     stock_data = PyTickerSymbols()
@@ -28,36 +28,46 @@ def run_asperg_scan(index_name):
                 name = s['name']
                 
                 stock = yf.Ticker(ticker_symbol)
-                # Stunden-Intervall für maximale Aktualität
-                hist = stock.history(period="5d", interval="1h")
+                # Wir nutzen '1d' für die Historie und '1h' für den aktuellen Check
+                hist = stock.history(period="3d", interval="1h")
                 
-                if len(hist) < 5: continue
+                if len(hist) < 3: continue
                 
                 current_vol = hist['Volume'].iloc[-1]
-                avg_vol = hist['Volume'].iloc[:-1].mean()
+                avg_vol = hist['Volume'].mean()
+                
                 vol_factor = round(current_vol / avg_vol, 2) if avg_vol > 0 else 0
                 
-                # Filter: Ab 2.0x Volumen schlagen wir Alarm
-                if vol_factor >= 2.0:
+                # SENSIBLERER FILTER: Ab 1.3x statt 2.0x für den Vormittag
+                if vol_factor >= 1.3:
                     zeit = datetime.now().strftime("%H:%M")
+                    
+                    # NEWS & CHART-LINK
                     news = stock.news
                     top_news = news[0]['title'] if news else "Keine aktuellen News"
+                    chart_url = f"https://de.finance.yahoo.com/quote/{ticker_symbol}/chart"
                     
-                    # Nachricht für Telegram vorbereiten
-                    msg = f"🚀 Projekt Asperg Alarm!\n\nAktie: {name}\nIndex: {index_name}\nVolumen: {vol_factor}x\nNews: {top_news}"
-                    send_telegram_message(msg)
+                    # LINK-FORMATIERUNG (Markdown für die Tabelle)
+                    display_name = f"[{name}]({chart_url})"
+                    
+                    # FARB-LOGIK (Ampel-Logik verfeinert)
+                    ampel = "🟢" if vol_factor < 2.0 else "🔥"
                     
                     hits.append({
                         "Uhrzeit": zeit,
-                        "Aktie": name,
-                        "Symbol": ticker_symbol,
-                        "Vol-Faktor": f"{vol_factor}x",
+                        "Status": ampel,
+                        "Aktie": display_name,
+                        "Vol-Faktor": vol_factor,
                         "Top-News": top_news
                     })
             except:
                 continue
                 
     if hits:
-        hits = sorted(hits, key=lambda x: float(x['Vol-Faktor'].replace('x', '')), reverse=True)
+        # Sortierung nach höchstem Volumen
+        hits = sorted(hits, key=lambda x: x['Vol-Faktor'], reverse=True)
+        # Formatierung für die Anzeige
+        for h in hits:
+            h['Vol-Faktor'] = f"{h['Vol-Faktor']}x"
         
     return hits
