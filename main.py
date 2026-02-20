@@ -3,12 +3,13 @@ import pandas as pd
 from datetime import datetime
 import streamlit as st
 import time
+import plotly.express as px
 
-# --- KONFIGURATION & SYMBOLE ---
+# --- KONFIGURATION ---
 TICKER_LISTS = {
-    "DAX": ["ADS.DE", "AIR.DE", "ALV.DE", "BAS.DE", "BAYN.DE", "BMW.DE", "CBK.DE", "DBK.DE", "DHL.DE", "DTE.DE", "EON.DE", "IFX.DE", "MBG.DE", "MUV2.DE", "RWE.DE", "SAP.DE", "SIE.DE", "VOW3.DE"],
-    "MDAX": ["HNR1.DE", "LHA.DE", "LEG.DE", "KGX.DE", "TALK.DE", "EVK.DE", "FRA.DE", "BOSS.DE", "PUM.DE"],
-    "SDAX": ["SDF.DE", "BC8.DE", "PNE3.DE", "WAF.DE", "HDD.DE", "G1A.DE", "WCH.DE"],
+    "DAX": ["ADS.DE", "AIR.DE", "ALV.DE", "BAS.DE", "BAYN.DE", "BMW.DE", "CBK.DE", "DB1.DE", "DBK.DE", "DHL.DE", "DTE.DE", "DTG.DE", "EON.DE", "FRE.DE", "HEI.DE", "HEN3.DE", "IFX.DE", "MBG.DE", "MRK.DE", "MUV2.DE", "P911.DE", "RWE.DE", "SAP.DE", "SIE.DE", "SY1.DE", "VOW3.DE", "ZAL.DE"],
+    "MDAX": ["HNR1.DE", "LHA.DE", "LEG.DE", "KGX.DE", "TALK.DE", "EVK.DE", "FRA.DE", "BOSS.DE", "PUM.DE", "WAF.DE"],
+    "SDAX": ["SDF.DE", "BC8.DE", "PNE3.DE", "HDD.DE", "G1A.DE", "WCH.DE"],
     "Dow Jones": ["AAPL", "MSFT", "GS", "JPM", "V", "AXP", "BA", "CAT", "DIS", "KO"],
     "S&P 500 (Top)": ["NVDA", "TSLA", "AMZN", "GOOGL", "META", "AMD", "NFLX"]
 }
@@ -17,8 +18,8 @@ def run_asperg_scan(index_name, interval):
     selected_tickers = TICKER_LISTS.get(index_name, TICKER_LISTS["DAX"])
     hits = []
     
-    # Dynamische Periode wählen
-    period = "2d" if interval in ["15m", "30m"] else "5d"
+    # Sicherstellen, dass genug Daten für den Durchschnitt da sind
+    period = "5d" if interval == "1h" else "2d"
     
     progress_bar = st.progress(0)
     for i, ticker in enumerate(selected_tickers):
@@ -26,41 +27,30 @@ def run_asperg_scan(index_name, interval):
             stock = yf.Ticker(ticker)
             hist = stock.history(period=period, interval=interval)
             
-            if not hist.empty and len(hist) >= 2:
-                # Volumen-Analyse
+            if not hist.empty and len(hist) >= 3:
+                # Volumen & Performance Logik
                 current_vol = hist['Volume'].iloc[-1]
-                avg_vol = hist['Volume'].tail(15).mean()
+                avg_vol = hist['Volume'].tail(10).mean()
                 
-                # Performance-Analyse (Profi-Feature)
-                open_price = hist['Open'].iloc[-1]
-                close_price = hist['Close'].iloc[-1]
-                perf = round(((close_price - open_price) / open_price) * 100, 2)
+                close_p = hist['Close'].iloc[-1]
+                open_p = hist['Open'].iloc[-1]
+                perf = round(((close_p - open_p) / open_p) * 100, 2)
                 
                 if avg_vol > 0:
                     vol_factor = round(current_vol / avg_vol, 2)
                     
                     if vol_factor >= 0.3:
-                        zeit = datetime.now().strftime("%H:%M")
-                        chart_url = f"https://de.finance.yahoo.com/quote/{ticker}"
-                        
-                        # Sektor & Name (Profi-Feature)
-                        info = stock.info
-                        sector = info.get('sector', 'N/A')
-                        
-                        # Status-Ampel (Kombiniert Volumen & Performance)
-                        if vol_factor >= 2.0 and perf > 0: status = "🚀"
-                        elif vol_factor >= 1.0: status = "🟢"
-                        elif perf < -2: status = "⚠️"
-                        else: status = "⚪"
+                        # Branchen-Info abrufen
+                        sector = stock.info.get('sector', 'Unbekannt')
                         
                         hits.append({
-                            "Uhrzeit": zeit,
-                            "Status": status,
-                            "Aktie": f"[{ticker.replace('.DE', '')}]({chart_url})",
+                            "Ticker": ticker.replace(".DE", ""),
+                            "Uhrzeit": datetime.now().strftime("%H:%M"),
+                            "Status": "🚀" if vol_factor > 1.5 and perf > 0 else "🟢" if perf > 0 else "🔴",
                             "Sektor": sector,
                             "Vol-Faktor": vol_factor,
-                            "Perf %": f"{perf}%",
-                            "Preis": f"{round(close_price, 2)} {'€' if '.DE' in ticker else '$'}"
+                            "Perf %": perf,
+                            "Preis": round(close_p, 2)
                         })
             
             time.sleep(0.05)
@@ -68,49 +58,64 @@ def run_asperg_scan(index_name, interval):
         except:
             continue
             
-    if hits:
-        df = pd.DataFrame(hits).sort_values(by="Vol-Faktor", ascending=False)
-        df['Vol-Faktor'] = df['Vol-Faktor'].apply(lambda x: f"{x}x")
-        return df
-    return None
+    return pd.DataFrame(hits) if hits else None
 
-# --- STREAMLIT UI ---
-st.set_page_config(page_title="Projekt Asperg", page_icon="🚀", layout="wide")
-st.title("🚀 Projekt Asperg: Markt-Scanner")
+# --- STREAMLIT UI SETUP ---
+st.set_page_config(page_title="Projekt Asperg", layout="wide")
 
-# Login-Logik
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
+# SIDEBAR LOGIN & SETUP
 with st.sidebar:
-    st.header("🔐 Bereich")
+    st.title("🔐 Projekt Asperg")
+    
     if not st.session_state.logged_in:
-        password = st.text_input("Passwort eingeben", type="password")
+        pwd = st.text_input("Passwort", type="password")
         if st.button("Einloggen"):
-            if password == st.secrets["APP_PASSWORD"]: # Passwort in Secrets hinterlegen!
+            if pwd == st.secrets["APP_PASSWORD"]:
                 st.session_state.logged_in = True
                 st.rerun()
             else:
                 st.error("Falsches Passwort")
     else:
+        st.success("Eingeloggt")
         if st.button("Logout"):
             st.session_state.logged_in = False
             st.rerun()
         
         st.divider()
         st.header("⚙️ Scanner-Setup")
-        index_choice = st.selectbox("Markt wählen", list(TICKER_LISTS.keys()))
-        interval_choice = st.select_slider("Intervall (Sensibilität)", options=["15m", "30m", "1h"], value="1h")
-        start_scan = st.button("Scan jetzt starten")
+        idx = st.selectbox("Markt", list(TICKER_LISTS.keys()))
+        iv = st.select_slider("Intervall", options=["15m", "30m", "1h"], value="1h")
+        do_scan = st.button("Scan starten")
 
-# Hauptbereich
+# HAUPTBEREICH
 if st.session_state.logged_in:
-    if 'start_scan' in locals() and start_scan:
-        ergebnisse = run_asperg_scan(index_choice, interval_choice)
-        if ergebnisse is not None:
-            st.success(f"Signale für {index_choice} gefunden!")
-            st.table(ergebnisse)
+    st.title(f"📊 Analyse: {idx} ({iv})")
+    
+    if 'do_scan' in locals() and do_scan:
+        df = run_asperg_scan(idx, iv)
+        
+        if df is not None:
+            # 1. Metriken anzeigen
+            c1, c2, c3 = st.columns(3)
+            top_stock = df.iloc[0]
+            c1.metric("Top Vol-Ausreißer", top_stock['Ticker'], f"{top_stock['Vol-Faktor']}x")
+            c2.metric("Beste Performance", f"{df.sort_values('Perf %').iloc[-1]['Ticker']}", f"{df.sort_values('Perf %').iloc[-1]['Perf %']}%")
+            c3.metric("Gescannte Aktien", len(df))
+
+            # 2. Balkendiagramm (Visualisierung)
+            st.subheader("Volumen-Faktoren im Vergleich")
+            fig = px.bar(df, x='Ticker', y='Vol-Faktor', color='Perf %', 
+                         title="Volumen-Spikes nach Aktie",
+                         color_continuous_scale='RdYlGn')
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # 3. Tabelle
+            st.subheader("Detail-Daten")
+            st.dataframe(df.sort_values('Vol-Faktor', ascending=False), use_container_width=True)
         else:
-            st.info("Keine Ausreißer gefunden.")
+            st.warning("Keine Treffer mit aktuellem Filter.")
 else:
-    st.warning("Bitte logge dich ein, um den Scanner zu nutzen.")
+    st.info("Bitte loggen Sie sich über die Sidebar ein.")
