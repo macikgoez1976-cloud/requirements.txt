@@ -2,81 +2,68 @@ import yfinance as yf
 import pandas as pd
 import streamlit as st
 import plotly.express as px
-import time
 
-# --- MÄRKTE ---
+# 1. SERVER-CACHE LEEREN (Verhindert Geister-Elemente)
+st.cache_data.clear()
+
+# --- KONFIGURATION ---
 INDIZES = {
     "DAX": ["ADS.DE", "AIR.DE", "ALV.DE", "BAS.DE", "BAYN.DE", "BMW.DE", "CBK.DE", "DBK.DE", "DTE.DE", "EON.DE", "IFX.DE", "MBG.DE", "MUV2.DE", "RWE.DE", "SAP.DE", "SIE.DE", "VOW3.DE"],
-    "MDAX": ["HNR1.DE", "LHA.DE", "LEG.DE", "KGX.DE", "TALK.DE", "EVK.DE", "FRA.DE", "BOSS.DE", "PUM.DE", "WAF.DE"],
-    "Dow Jones": ["AAPL", "MSFT", "GS", "JPM", "V", "AXP", "BA", "CAT", "DIS", "KO"]
+    "MDAX": ["HNR1.DE", "LHA.DE", "LEG.DE", "KGX.DE", "TALK.DE", "EVK.DE", "FRA.DE", "BOSS.DE", "PUM.DE", "WAF.DE"]
 }
 
-def scan_logic(idx, interval):
-    tickers = INDIZES.get(idx)
-    data_list = []
-    progress = st.progress(0)
+# --- AUTH LOGIK ---
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+def check_login():
+    if st.session_state.authenticated:
+        return True
     
-    for i, t in enumerate(tickers):
-        try:
-            stock = yf.Ticker(t)
-            hist = stock.history(period="5d", interval=interval)
-            if not hist.empty and len(hist) >= 2:
-                v_now = hist['Volume'].iloc[-1]
-                v_avg = hist['Volume'].tail(10).mean()
-                ratio = round(v_now / v_avg, 2) if v_avg > 0 else 0
-                perf = round(((hist['Close'].iloc[-1] - hist['Open'].iloc[-1]) / hist['Open'].iloc[-1]) * 100, 2)
-                
-                data_list.append({
-                    "Aktie": t.replace(".DE", ""),
-                    "Vol-Faktor": ratio,
-                    "Performance %": perf,
-                    "Preis": round(hist['Close'].iloc[-1], 2)
-                })
-            progress.progress((i + 1) / len(tickers))
-        except: continue
-    return pd.DataFrame(data_list) if data_list else None
+    # Diese Spalte erscheint NUR, wenn man nicht eingeloggt ist
+    st.sidebar.title("🔐 Projekt Asperg Login")
+    pwd = st.sidebar.text_input("Passwort", type="password", key="unique_pwd_key")
+    if st.sidebar.button("Anmelden", key="unique_login_button"):
+        if pwd == st.secrets["APP_PASSWORD"]:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.sidebar.error("Falsches Passwort")
+    return False
 
-# --- UI START ---
-st.set_page_config(page_title="Projekt Asperg", layout="wide")
+# --- APP START ---
+st.set_page_config(page_title="Asperg Scanner", layout="wide")
 
-# Session State Check
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-
-# SIDEBAR: Hier wird strikt unterschieden
-with st.sidebar:
-    st.title("🛡️ Projekt Asperg")
-    
-    if not st.session_state.logged_in:
-        # NUR wenn nicht eingeloggt
-        pwd = st.text_input("Master-Passwort", type="password", key="pwd_field")
-        if st.button("Anmelden", key="login_final"):
-            if pwd == st.secrets["APP_PASSWORD"]:
-                st.session_state.logged_in = True
-                st.rerun()
-            else:
-                st.error("Falsch!")
-    else:
-        # NUR wenn eingeloggt
-        st.success("Login aktiv")
-        markt_wahl = st.selectbox("Index wählen", list(INDIZES.keys()), key="m_select")
-        zeit_wahl = st.select_slider("Intervall", options=["15m", "30m", "1h"], value="1h", key="z_select")
-        if st.button("Abmelden", key="logout_final"):
-            st.session_state.logged_in = False
+if check_login():
+    # ALLES HIER DRIN erscheint erst nach dem Login
+    with st.sidebar:
+        st.title("⚙️ Einstellungen")
+        wahl = st.selectbox("Index", list(INDIZES.keys()))
+        if st.button("Logout"):
+            st.session_state.authenticated = False
             st.rerun()
 
-# HAUPTSEITE
-if st.session_state.logged_in:
-    st.header(f"Analyse: {markt_wahl}")
-    if st.button(f"Scan starten", key="run_main"):
-        ergebnisse = scan_logic(markt_wahl, zeit_wahl)
-        if ergebnisse is not None:
-            # Diagramm
-            fig = px.bar(ergebnisse, x='Aktie', y='Vol-Faktor', color='Performance %',
-                         color_continuous_scale='RdYlGn', range_color=[-1, 1],
-                         title="Volumen vs. Performance")
-            st.plotly_chart(fig, use_container_width=True)
-            # Tabelle
-            st.dataframe(ergebnisse.sort_values("Vol-Faktor", ascending=False), use_container_width=True)
+    st.header(f"Markt-Analyse: {wahl}")
+    
+    if st.button("🚀 Scan jetzt starten"):
+        with st.spinner("Lade Daten..."):
+            # Scanner Logik
+            found = []
+            for t in INDIZES[wahl]:
+                try:
+                    s = yf.Ticker(t)
+                    h = s.history(period="1d", interval="1h")
+                    if not h.empty:
+                        vol_factor = round(h['Volume'].iloc[-1] / h['Volume'].mean(), 2)
+                        found.append({"Aktie": t, "Vol-Faktor": vol_factor, "Preis": h['Close'].iloc[-1]})
+                except: continue
+            
+            if found:
+                df = pd.DataFrame(found)
+                fig = px.bar(df, x="Aktie", y="Vol-Faktor", title="Volumen-Check")
+                st.plotly_chart(fig, use_container_width=True)
+                st.dataframe(df)
 else:
-    st.info("Bitte nutzen Sie das Login-Feld in der Seitenleiste.")
+    # Das hier sieht man, wenn man NICHT eingeloggt ist
+    st.warning("Bitte logge dich in der Sidebar ein.")
+    st.stop() # STOPPT den Rest des Codes sofort!
