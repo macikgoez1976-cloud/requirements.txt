@@ -24,35 +24,34 @@ def run_asperg_scan(index_name, interval):
             if not hist.empty and len(hist) >= 2:
                 current_vol = hist['Volume'].iloc[-1]
                 avg_vol = hist['Volume'].tail(10).mean()
-                vol_factor = round(current_vol / avg_vol, 2) if avg_vol > 0 else 0
+                vol_factor = round(current_vol / avg_vol, 2)
                 
                 # Performance der Kerze
                 perf = round(((hist['Close'].iloc[-1] - hist['Open'].iloc[-1]) / hist['Open'].iloc[-1]) * 100, 2)
                 
-                if vol_factor >= 0.1: # Sehr niedrige Schwelle für den Test
-                    hits.append({
-                        "Ticker": ticker.replace(".DE", ""),
-                        "Vol-Faktor": vol_factor,
-                        "Perf %": perf,
-                        "Preis": round(hist['Close'].iloc[-1], 2)
-                    })
+                hits.append({
+                    "Ticker": ticker.replace(".DE", ""),
+                    "Vol-Faktor": vol_factor,
+                    "Perf %": perf,
+                    "Preis": round(hist['Close'].iloc[-1], 2)
+                })
             progress_bar.progress((i + 1) / len(selected))
         except: continue
     return pd.DataFrame(hits) if hits else None
 
-# --- UI STRUKTUR ---
+# --- UI ---
 st.set_page_config(page_title="Projekt Asperg", layout="wide")
 
 if "auth_ok" not in st.session_state:
     st.session_state.auth_ok = False
 
-# Sidebar
 with st.sidebar:
     st.title("🛡️ Projekt Asperg")
+    
+    # LOGIN-LOGIK (Nacheinander)
     if not st.session_state.auth_ok:
-        # Eindeutige Keys verhindern DuplicateElementID
-        user_pwd = st.text_input("Passwort", type="password", key="login_pwd_input")
-        if st.button("Einloggen", key="login_btn"):
+        user_pwd = st.text_input("Passwort", type="password", key="login_pwd")
+        if st.button("Einloggen", key="btn_login"):
             if user_pwd == st.secrets["APP_PASSWORD"]:
                 st.session_state.auth_ok = True
                 st.rerun()
@@ -60,32 +59,27 @@ with st.sidebar:
                 st.error("Passwort falsch")
     else:
         st.success("Eingeloggt ✅")
-        target_idx = st.selectbox("Index wählen", list(TICKER_LISTS.keys()), key="idx_sel")
-        target_iv = st.select_slider("Intervall", options=["15m", "30m", "1h"], value="1h", key="iv_slider")
-        if st.button("Logout", key="logout_btn"):
+        # Menü erst NACH Login anzeigen
+        target_idx = st.selectbox("Index wählen", list(TICKER_LISTS.keys()), key="sel_idx")
+        target_iv = st.select_slider("Intervall", options=["15m", "30m", "1h"], value="1h", key="sl_iv")
+        if st.button("Logout", key="btn_logout"):
             st.session_state.auth_ok = False
             st.rerun()
 
 # Hauptfenster
 if st.session_state.auth_ok:
     st.header(f"Markt-Scanner: {target_idx}")
-    # Eindeutiger Key für den Scan-Button
-    if st.button(f"Scan für {target_idx} jetzt starten", key="run_scan_btn"):
-        with st.spinner("Analysiere Marktdaten..."):
-            df = run_asperg_scan(target_idx, target_iv)
+    if st.button(f"Scan für {target_idx} starten", key="btn_scan"):
+        df = run_asperg_scan(target_idx, target_iv)
+        if df is not None:
+            # Balkendiagramm zur Visualisierung der Volumen-Ausreißer
+            fig = px.bar(df, x='Ticker', y='Vol-Faktor', color='Perf %',
+                         color_continuous_scale='RdYlGn', 
+                         title=f"Volumen-Faktoren {target_idx} ({target_iv})")
+            st.plotly_chart(fig, use_container_width=True)
             
-            if df is not None:
-                # Das gewünschte Balkendiagramm
-                fig = px.bar(df, x='Ticker', y='Vol-Faktor', color='Perf %',
-                             title=f"Volumen-Ausreißer im {target_idx}",
-                             color_continuous_scale='RdYlGn',
-                             text_auto='.2f')
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Die Detail-Tabelle
-                st.subheader("Detail-Daten")
-                st.dataframe(df.sort_values("Vol-Faktor", ascending=False), use_container_width=True)
-            else:
-                st.warning("Keine Werte mit erhöhtem Volumen gefunden.")
+            st.table(df.sort_values("Vol-Faktor", ascending=False))
+        else:
+            st.warning("Keine Daten gefunden.")
 else:
-    st.info("Bitte logge dich in der Sidebar ein, um den Scanner zu starten.")
+    st.info("Bitte logge dich in der Sidebar ein.")
