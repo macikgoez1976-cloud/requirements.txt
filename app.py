@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 
-# 1. AUTH-CHECK (Verhindert doppelte Anzeige)
+# 1. AUTH-CHECK
 if "auth_ok" not in st.session_state:
     st.session_state.auth_ok = False
 
@@ -18,15 +18,13 @@ if not st.session_state.auth_ok:
             st.rerun()
         else:
             st.sidebar.error("Passwort falsch")
-    st.info("Bitte logge dich über die Sidebar ein.")
+    st.info("Bitte loggen Sie sich über die Sidebar ein.")
     st.stop()
 
 # --- AB HIER NUR EINGELOGGT ---
-
 TICKERS = {
     "DAX": ["ADS.DE", "AIR.DE", "ALV.DE", "BAS.DE", "BAYN.DE", "BMW.DE", "CBK.DE", "DBK.DE", "DHL.DE", "DTE.DE", "EON.DE", "IFX.DE", "MBG.DE", "MUV2.DE", "RWE.DE", "SAP.DE", "SIE.DE", "VOW3.DE"],
     "MDAX": ["HNR1.DE", "LHA.DE", "LEG.DE", "KGX.DE", "TALK.DE", "EVK.DE", "FRA.DE", "BOSS.DE", "PUM.DE", "WAF.DE"],
-    "SDAX": ["SDF.DE", "BC8.DE", "PNE3.DE", "HDD.DE", "G1A.DE", "WCH.DE", "AM3D.DE"],
     "Dow Jones": ["AAPL", "MSFT", "GS", "JPM", "V", "AXP", "BA", "CAT", "DIS", "KO"],
     "S&P 500": ["NVDA", "TSLA", "AMZN", "GOOGL", "META", "AMD", "NFLX"]
 }
@@ -60,9 +58,10 @@ if st.button(f"Scan starten"):
     if hits:
         df = pd.DataFrame(hits)
         st.subheader("Volumen-Ausreißer")
-        # Diagramm mit Farbskala (Rot bei Minus, Grün bei Plus)
         fig = px.bar(df, x='Aktie', y='Vol-Faktor', color='Perf %',
                      color_continuous_scale='RdYlGn', range_color=[-1.5, 1.5],
                      text='Perf %', title="Relativer Volumen-Faktor")
         st.plotly_chart(fig, use_container_width=True)
         st.table(df.sort_values("Vol-Faktor", ascending=False))
+    else:
+        st.warning("Keine Daten gefunden.")
