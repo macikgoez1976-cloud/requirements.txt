@@ -1,1 +1,0 @@
-[![Asperg Auto Scan](https://github.com/macikgoez1976-cloud/requirements.txt/actions/workflows/run_scan.yml/badge.svg)](https://github.com/macikgoez1976-cloud/requirements.txt/actions/workflows/run_scan.yml) 
