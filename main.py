@@ -1,121 +1,91 @@
 import yfinance as yf
 import pandas as pd
-from datetime import datetime
 import streamlit as st
-import time
 import plotly.express as px
+from datetime import datetime
+import time
 
 # --- KONFIGURATION ---
 TICKER_LISTS = {
-    "DAX": ["ADS.DE", "AIR.DE", "ALV.DE", "BAS.DE", "BAYN.DE", "BMW.DE", "CBK.DE", "DB1.DE", "DBK.DE", "DHL.DE", "DTE.DE", "DTG.DE", "EON.DE", "FRE.DE", "HEI.DE", "HEN3.DE", "IFX.DE", "MBG.DE", "MRK.DE", "MUV2.DE", "P911.DE", "RWE.DE", "SAP.DE", "SIE.DE", "SY1.DE", "VOW3.DE", "ZAL.DE"],
+    "DAX": ["ADS.DE", "AIR.DE", "ALV.DE", "BAS.DE", "BAYN.DE", "BMW.DE", "CBK.DE", "DBK.DE", "DHL.DE", "DTE.DE", "EON.DE", "IFX.DE", "MBG.DE", "MUV2.DE", "RWE.DE", "SAP.DE", "SIE.DE", "VOW3.DE"],
     "MDAX": ["HNR1.DE", "LHA.DE", "LEG.DE", "KGX.DE", "TALK.DE", "EVK.DE", "FRA.DE", "BOSS.DE", "PUM.DE", "WAF.DE"],
-    "SDAX": ["SDF.DE", "BC8.DE", "PNE3.DE", "HDD.DE", "G1A.DE", "WCH.DE"],
     "Dow Jones": ["AAPL", "MSFT", "GS", "JPM", "V", "AXP", "BA", "CAT", "DIS", "KO"],
-    "S&P 500 (Top)": ["NVDA", "TSLA", "AMZN", "GOOGL", "META", "AMD", "NFLX"]
+    "S&P 500": ["NVDA", "TSLA", "AMZN", "GOOGL", "META", "AMD", "NFLX"]
 }
 
 def run_asperg_scan(index_name, interval):
-    selected_tickers = TICKER_LISTS.get(index_name, TICKER_LISTS["DAX"])
+    selected = TICKER_LISTS.get(index_name)
     hits = []
-    
-    # Sicherstellen, dass genug Daten für den Durchschnitt da sind
-    period = "5d" if interval == "1h" else "2d"
-    
     progress_bar = st.progress(0)
-    for i, ticker in enumerate(selected_tickers):
+    
+    for i, ticker in enumerate(selected):
         try:
             stock = yf.Ticker(ticker)
-            hist = stock.history(period=period, interval=interval)
+            # Wir holen 5 Tage Daten, um einen sauberen Durchschnitt zu haben
+            hist = stock.history(period="5d", interval=interval)
             
-            if not hist.empty and len(hist) >= 3:
-                # Volumen & Performance Logik
+            if len(hist) >= 3:
                 current_vol = hist['Volume'].iloc[-1]
                 avg_vol = hist['Volume'].tail(10).mean()
+                vol_factor = round(current_vol / avg_vol, 2)
                 
-                close_p = hist['Close'].iloc[-1]
-                open_p = hist['Open'].iloc[-1]
-                perf = round(((close_p - open_p) / open_p) * 100, 2)
+                # Kurs-Performance der aktuellen Kerze
+                perf = round(((hist['Close'].iloc[-1] - hist['Open'].iloc[-1]) / hist['Open'].iloc[-1]) * 100, 2)
                 
-                if avg_vol > 0:
-                    vol_factor = round(current_vol / avg_vol, 2)
-                    
-                    if vol_factor >= 0.3:
-                        # Branchen-Info abrufen
-                        sector = stock.info.get('sector', 'Unbekannt')
-                        
-                        hits.append({
-                            "Ticker": ticker.replace(".DE", ""),
-                            "Uhrzeit": datetime.now().strftime("%H:%M"),
-                            "Status": "🚀" if vol_factor > 1.5 and perf > 0 else "🟢" if perf > 0 else "🔴",
-                            "Sektor": sector,
-                            "Vol-Faktor": vol_factor,
-                            "Perf %": perf,
-                            "Preis": round(close_p, 2)
-                        })
-            
+                # Wir nehmen alles ab 0.3x auf, damit die Tabelle nicht leer bleibt
+                if vol_factor >= 0.3:
+                    hits.append({
+                        "Ticker": ticker.replace(".DE", ""),
+                        "Vol-Faktor": vol_factor,
+                        "Perf %": perf,
+                        "Preis": round(hist['Close'].iloc[-1], 2)
+                    })
             time.sleep(0.05)
-            progress_bar.progress((i + 1) / len(selected_tickers))
+            progress_bar.progress((i + 1) / len(selected))
         except:
             continue
-            
     return pd.DataFrame(hits) if hits else None
 
-# --- STREAMLIT UI SETUP ---
+# --- UI ---
 st.set_page_config(page_title="Projekt Asperg", layout="wide")
 
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
+if "auth" not in st.session_state:
+    st.session_state.auth = False
 
-# SIDEBAR LOGIN & SETUP
 with st.sidebar:
-    st.title("🔐 Projekt Asperg")
-    
-    if not st.session_state.logged_in:
+    st.title("🚀 Asperg Scanner")
+    if not st.session_state.auth:
         pwd = st.text_input("Passwort", type="password")
         if st.button("Einloggen"):
             if pwd == st.secrets["APP_PASSWORD"]:
-                st.session_state.logged_in = True
+                st.session_state.auth = True
                 st.rerun()
             else:
-                st.error("Falsches Passwort")
+                st.error("Falsch!")
     else:
-        st.success("Eingeloggt")
+        st.success("Bereit")
+        idx_choice = st.selectbox("Markt", list(TICKER_LISTS.keys()))
+        int_choice = st.select_slider("Intervall", options=["15m", "30m", "1h"], value="1h")
         if st.button("Logout"):
-            st.session_state.logged_in = False
+            st.session_state.auth = False
             st.rerun()
-        
-        st.divider()
-        st.header("⚙️ Scanner-Setup")
-        idx = st.selectbox("Markt", list(TICKER_LISTS.keys()))
-        iv = st.select_slider("Intervall", options=["15m", "30m", "1h"], value="1h")
-        do_scan = st.button("Scan starten")
 
-# HAUPTBEREICH
-if st.session_state.logged_in:
-    st.title(f"📊 Analyse: {idx} ({iv})")
-    
-    if 'do_scan' in locals() and do_scan:
-        df = run_asperg_scan(idx, iv)
-        
+# Hauptfenster
+if st.session_state.auth:
+    st.write(f"### Aktueller Fokus: {idx_choice} ({int_choice})")
+    # Der Button zum Scannen muss im Hauptfenster oder Sidebar sein, 
+    # aber die Variablen müssen existieren
+    if st.button("Markt jetzt scannen"):
+        df = run_asperg_scan(idx_choice, int_choice)
         if df is not None:
-            # 1. Metriken anzeigen
-            c1, c2, c3 = st.columns(3)
-            top_stock = df.iloc[0]
-            c1.metric("Top Vol-Ausreißer", top_stock['Ticker'], f"{top_stock['Vol-Faktor']}x")
-            c2.metric("Beste Performance", f"{df.sort_values('Perf %').iloc[-1]['Ticker']}", f"{df.sort_values('Perf %').iloc[-1]['Perf %']}%")
-            c3.metric("Gescannte Aktien", len(df))
-
-            # 2. Balkendiagramm (Visualisierung)
-            st.subheader("Volumen-Faktoren im Vergleich")
+            # Das neue Balkendiagramm
             fig = px.bar(df, x='Ticker', y='Vol-Faktor', color='Perf %', 
-                         title="Volumen-Spikes nach Aktie",
-                         color_continuous_scale='RdYlGn')
+                         color_continuous_scale='RdYlGn', title="Volumen-Ausreißer")
             st.plotly_chart(fig, use_container_width=True)
             
-            # 3. Tabelle
-            st.subheader("Detail-Daten")
-            st.dataframe(df.sort_values('Vol-Faktor', ascending=False), use_container_width=True)
+            # Die Tabelle
+            st.table(df.sort_values("Vol-Faktor", ascending=False))
         else:
-            st.warning("Keine Treffer mit aktuellem Filter.")
+            st.info("Keine Bewegungen gefunden.")
 else:
-    st.info("Bitte loggen Sie sich über die Sidebar ein.")
+    st.info("Bitte einloggen.")
