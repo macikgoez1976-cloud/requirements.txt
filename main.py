@@ -2,105 +2,81 @@ import yfinance as yf
 import pandas as pd
 import streamlit as st
 import plotly.express as px
-from datetime import datetime
 import time
 
-# --- SETUP MÄRKTE ---
-TICKER_LISTS = {
+# --- MÄRKTE ---
+INDIZES = {
     "DAX": ["ADS.DE", "AIR.DE", "ALV.DE", "BAS.DE", "BAYN.DE", "BMW.DE", "CBK.DE", "DBK.DE", "DTE.DE", "EON.DE", "IFX.DE", "MBG.DE", "MUV2.DE", "RWE.DE", "SAP.DE", "SIE.DE", "VOW3.DE"],
     "MDAX": ["HNR1.DE", "LHA.DE", "LEG.DE", "KGX.DE", "TALK.DE", "EVK.DE", "FRA.DE", "BOSS.DE", "PUM.DE", "WAF.DE"],
-    "Dow Jones": ["AAPL", "MSFT", "GS", "JPM", "V", "AXP", "BA", "CAT", "DIS", "KO", "NKE", "TRV", "UNH", "VZ"],
-    "S&P 500": ["NVDA", "TSLA", "AMZN", "GOOGL", "META", "AMD", "NFLX", "AAPL", "MSFT"]
+    "Dow Jones": ["AAPL", "MSFT", "GS", "JPM", "V", "AXP", "BA", "CAT", "DIS", "KO"]
 }
 
-def run_asperg_scan(index_name, interval):
-    selected = TICKER_LISTS.get(index_name)
-    hits = []
-    progress_bar = st.progress(0)
+def scan_logic(idx, interval):
+    tickers = INDIZES.get(idx)
+    data_list = []
+    progress = st.progress(0)
     
-    for i, ticker in enumerate(selected):
+    for i, t in enumerate(tickers):
         try:
-            stock = yf.Ticker(ticker)
-            # Wir nehmen 5 Tage für einen stabilen Durchschnitt
+            stock = yf.Ticker(t)
             hist = stock.history(period="5d", interval=interval)
-            
-            if not hist.empty and len(hist) >= 3:
-                current_vol = hist['Volume'].iloc[-1]
-                avg_vol = hist['Volume'].tail(15).mean() # Vergleich mit den letzten 15 Intervallen
-                vol_factor = round(current_vol / avg_vol, 2)
-                
-                # Kurs-Performance der aktuellen Kerze (Open zu Close)
+            if not hist.empty and len(hist) >= 2:
+                v_now = hist['Volume'].iloc[-1]
+                v_avg = hist['Volume'].tail(10).mean()
+                ratio = round(v_now / v_avg, 2) if v_avg > 0 else 0
                 perf = round(((hist['Close'].iloc[-1] - hist['Open'].iloc[-1]) / hist['Open'].iloc[-1]) * 100, 2)
                 
-                # Wir erfassen alles ab 0.2x, um die Dynamik zu sehen
-                hits.append({
-                    "Ticker": ticker.replace(".DE", ""),
-                    "Vol-Faktor": vol_factor,
-                    "Perf %": perf,
+                data_list.append({
+                    "Aktie": t.replace(".DE", ""),
+                    "Vol-Faktor": ratio,
+                    "Performance %": perf,
                     "Preis": round(hist['Close'].iloc[-1], 2)
                 })
-            time.sleep(0.05)
-            progress_bar.progress((i + 1) / len(selected))
-        except:
-            continue
-    return pd.DataFrame(hits) if hits else None
+            progress.progress((i + 1) / len(tickers))
+        except: continue
+    return pd.DataFrame(data_list) if data_list else None
 
-# --- UI STRUKTUR ---
+# --- UI START ---
 st.set_page_config(page_title="Projekt Asperg", layout="wide")
 
-# Initialisiere Auth-Status
-if "auth_ok" not in st.session_state:
-    st.session_state.auth_ok = False
+# Session State Check
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-# SIDEBAR
+# SIDEBAR: Hier wird strikt unterschieden
 with st.sidebar:
     st.title("🛡️ Projekt Asperg")
     
-    if not st.session_state.auth_ok:
-        # NUR PASSWORT ANZEIGEN
-        user_pwd = st.text_input("Passwort eingeben", type="password", key="main_pwd")
-        if st.button("Einloggen", key="login_trigger"):
-            if user_pwd == st.secrets["APP_PASSWORD"]:
-                st.session_state.auth_ok = True
+    if not st.session_state.logged_in:
+        # NUR wenn nicht eingeloggt
+        pwd = st.text_input("Master-Passwort", type="password", key="pwd_field")
+        if st.button("Anmelden", key="login_final"):
+            if pwd == st.secrets["APP_PASSWORD"]:
+                st.session_state.logged_in = True
                 st.rerun()
             else:
-                st.error("Passwort inkorrekt")
+                st.error("Falsch!")
     else:
-        # NUR SCANNER-MENÜ ANZEIGEN
-        st.success("Verbindung gesichert ✅")
-        target_idx = st.selectbox("Markt wählen", list(TICKER_LISTS.keys()), key="sel_market")
-        target_iv = st.select_slider("Intervall", options=["15m", "30m", "1h"], value="1h", key="iv_slider")
-        
-        st.divider()
-        if st.button("Logout", key="logout_trigger"):
-            st.session_state.auth_ok = False
+        # NUR wenn eingeloggt
+        st.success("Login aktiv")
+        markt_wahl = st.selectbox("Index wählen", list(INDIZES.keys()), key="m_select")
+        zeit_wahl = st.select_slider("Intervall", options=["15m", "30m", "1h"], value="1h", key="z_select")
+        if st.button("Abmelden", key="logout_final"):
+            st.session_state.logged_in = False
             st.rerun()
 
-# HAUPTFENSTER
-if st.session_state.auth_ok:
-    st.header(f"📊 Live-Analyse: {target_idx} ({target_iv})")
-    
-    if st.button(f"🔍 {target_idx} jetzt scannen", key="scan_trigger"):
-        with st.spinner("Hole Echtzeitdaten..."):
-            df = run_asperg_scan(target_idx, target_iv)
-            
-            if df is not None and not df.empty:
-                # 1. Visualisierung: Volumen-Balkendiagramm
-                # Farbskala von Rot (negativ) über Gelb (neutral) zu Grün (positiv)
-                fig = px.bar(df, x='Ticker', y='Vol-Faktor', color='Perf %',
-                             title=f"Relative Volumen-Stärke - {target_idx}",
-                             color_continuous_scale='RdYlGn',
-                             range_color=[-2, 2], # Zentriert die Farben um 0%
-                             text='Perf %')
-                
-                fig.update_traces(texttemplate='%{text}%', textposition='outside')
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # 2. Detail-Tabelle
-                st.subheader("Markt-Details")
-                # Styling für die Tabelle: Höchster Vol-Faktor zuerst
-                st.dataframe(df.sort_values("Vol-Faktor", ascending=False), use_container_width=True)
-            else:
-                st.warning("Keine Daten verfügbar. Prüfe die Marktöffnungszeiten.")
+# HAUPTSEITE
+if st.session_state.logged_in:
+    st.header(f"Analyse: {markt_wahl}")
+    if st.button(f"Scan starten", key="run_main"):
+        ergebnisse = scan_logic(markt_wahl, zeit_wahl)
+        if ergebnisse is not None:
+            # Diagramm
+            fig = px.bar(ergebnisse, x='Aktie', y='Vol-Faktor', color='Performance %',
+                         color_continuous_scale='RdYlGn', range_color=[-1, 1],
+                         title="Volumen vs. Performance")
+            st.plotly_chart(fig, use_container_width=True)
+            # Tabelle
+            st.dataframe(ergebnisse.sort_values("Vol-Faktor", ascending=False), use_container_width=True)
 else:
-    st.info("Willkommen bei Projekt Asperg. Bitte loggen Sie sich in der Sidebar ein, um fortzufahren.")
+    st.info("Bitte nutzen Sie das Login-Feld in der Seitenleiste.")
