@@ -52,13 +52,11 @@ if st.button(f"Scan starten"):
     for i, t in enumerate(selected_list):
         try:
             stock = yf.Ticker(t)
-            # Wir brauchen 1 Jahr Daten für die 200-Tage-Linie
             hist_daily = stock.history(period="1y") 
-            # Intervall-Daten für Volumen/RSI
             hist_iv = stock.history(period="10d", interval=target_iv)
             
             if not hist_iv.empty and len(hist_daily) >= 200:
-                # 1. VOLUMEN & RSI (wie gehabt)
+                # 1. VOLUMEN & RSI
                 vol_ratio = round(hist_iv['Volume'].iloc[-1] / hist_iv['Volume'].tail(15).mean(), 2)
                 perf = round(((hist_iv['Close'].iloc[-1] - hist_iv['Open'].iloc[-1]) / hist_iv['Open'].iloc[-1]) * 100, 2)
                 
@@ -67,7 +65,7 @@ if st.button(f"Scan starten"):
                 loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
                 rsi = round(100 - (100 / (1 + (gain / loss).iloc[-1])), 1)
 
-                # 2. SMA 200 & KREUZUNG
+                # 2. SMA 200
                 sma200 = hist_daily['Close'].rolling(window=200).mean()
                 current_price = hist_daily['Close'].iloc[-1]
                 prev_price = hist_daily['Close'].iloc[-2]
@@ -84,14 +82,13 @@ if st.button(f"Scan starten"):
                 else:
                     sma_status = "Trend: Bärisch"
 
-                # 3. WKN (Info-Abruf dauert etwas, daher Fehler abfangen)
-                wkn = "N/A"
-                try: wkn = stock.info.get('isin', 'N/A') # ISIN ist oft zuverlässiger als WKN
-                except: pass
+                # 3. LINK GENERIERUNG (Finanzen.net)
+                clean_name = t.replace(".DE", "")
+                link = f"https://www.finanzen.net/suchergebnis.asp?_search={clean_name}"
 
                 hits.append({
-                    "Aktie": t.replace(".DE", ""),
-                    "ISIN/WKN": wkn,
+                    "Aktie": clean_name,
+                    "Link": link,
                     "Vol-Faktor": vol_ratio,
                     "Perf %": perf,
                     "RSI (14)": rsi,
@@ -117,13 +114,19 @@ if st.button(f"Scan starten"):
                          title="Fokus: Volumen vs. Trend-Status")
         st.plotly_chart(fig, use_container_width=True)
         
-        # --- TABELLE ---
-        def color_sma(val):
-            if "OBEN" in val: return 'background-color: #00ff00; color: black'
-            if "UNTEN" in val: return 'background-color: #ff4b4b; color: white'
-            return ''
-
-        st.subheader("Detail-Daten")
-        st.dataframe(df.sort_values("Vol-Faktor", ascending=False).style.map(color_sma, subset=['200-Tage-Check']), use_container_width=True)
+        # --- TABELLE MIT KLICKBAREN LINKS ---
+        st.subheader("Detail-Daten (Klick auf den Namen öffnet Finanzen.net)")
+        
+        # Spalten-Konfiguration für klickbare Links
+        st.data_editor(
+            df.sort_values("Vol-Faktor", ascending=False),
+            column_config={
+                "Link": st.column_config.LinkColumn("Finanzen.net 🔗", display_text="Ansehen"),
+                "Aktie": st.column_config.TextColumn("Ticker"),
+            },
+            hide_index=True,
+            use_container_width=True,
+            disabled=True # Deaktiviert das Editieren, behält aber das Styling
+        )
     else:
         st.warning("Keine Daten gefunden.")
