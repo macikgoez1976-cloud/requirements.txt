@@ -113,6 +113,6 @@ if st.button(f"Scan starten"):
             if val < 30: return 'background-color: #ccffcc' # Grün für günstig
             return ''
             
-        st.dataframe(df.sort_values("Vol-Faktor", ascending=False).style.applymap(color_rsi, subset=['RSI (14)']), use_container_width=True)
+        st.dataframe(df.sort_values("Vol-Faktor", ascending=False).style.map(color_rsi, subset=['RSI (14)']), use_container_width=True)
     else:
         st.warning("Keine Daten gefunden.")
