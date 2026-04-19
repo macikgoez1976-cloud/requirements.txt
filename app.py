@@ -3,14 +3,12 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 
-# FUNKTION FÜR VERSIONSSICHERHEIT
 def safe_rerun():
     if hasattr(st, "rerun"):
         st.rerun()
     else:
         st.experimental_rerun()
 
-# 1. AUTH-CHECK
 if "auth_ok" not in st.session_state:
     st.session_state.auth_ok = False
 
@@ -27,8 +25,7 @@ if not st.session_state.auth_ok:
             st.sidebar.error("Passwort falsch")
     st.stop()
 
-# --- AB HIER NUR EINGELOGGT ---
-
+# --- DATEN-DEFINITION ---
 TICKERS = {
     "DAX": ["ADS.DE", "AIR.DE", "ALV.DE", "BAS.DE", "BAYN.DE", "BMW.DE", "CBK.DE", "DBK.DE", "DHL.DE", "DTE.DE", "EON.DE", "IFX.DE", "MBG.DE", "MUV2.DE", "RWE.DE", "SAP.DE", "SIE.DE", "VOW3.DE", "SY1.DE", "BEI.DE"],
     "MDAX": ["HNR1.DE", "LHA.DE", "LEG.DE", "KGX.DE", "TALK.DE", "EVK.DE", "FRA.DE", "BOSS.DE", "PUM.DE", "WAF.DE"],
@@ -55,28 +52,51 @@ if st.button(f"Scan starten"):
     for i, t in enumerate(selected_list):
         try:
             stock = yf.Ticker(t)
-            # 20 Kerzen laden für sauberen RSI
-            hist = stock.history(period="10d", interval=target_iv)
-            if not hist.empty and len(hist) >= 15:
-                # 1. VOLUMEN
-                vol_ratio = round(hist['Volume'].iloc[-1] / hist['Volume'].tail(15).mean(), 2)
+            # Wir brauchen 1 Jahr Daten für die 200-Tage-Linie
+            hist_daily = stock.history(period="1y") 
+            # Intervall-Daten für Volumen/RSI
+            hist_iv = stock.history(period="10d", interval=target_iv)
+            
+            if not hist_iv.empty and len(hist_daily) >= 200:
+                # 1. VOLUMEN & RSI (wie gehabt)
+                vol_ratio = round(hist_iv['Volume'].iloc[-1] / hist_iv['Volume'].tail(15).mean(), 2)
+                perf = round(((hist_iv['Close'].iloc[-1] - hist_iv['Open'].iloc[-1]) / hist_iv['Open'].iloc[-1]) * 100, 2)
                 
-                # 2. PERFORMANCE
-                perf = round(((hist['Close'].iloc[-1] - hist['Open'].iloc[-1]) / hist['Open'].iloc[-1]) * 100, 2)
-                
-                # 3. RSI BERECHNUNG (vereinfacht)
-                delta = hist['Close'].diff()
+                delta = hist_iv['Close'].diff()
                 gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
                 loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                rs = gain / loss
-                rsi = round(100 - (100 / (1 + rs.iloc[-1])), 1)
+                rsi = round(100 - (100 / (1 + (gain / loss).iloc[-1])), 1)
+
+                # 2. SMA 200 & KREUZUNG
+                sma200 = hist_daily['Close'].rolling(window=200).mean()
+                current_price = hist_daily['Close'].iloc[-1]
+                prev_price = hist_daily['Close'].iloc[-2]
+                current_sma = sma200.iloc[-1]
+                prev_sma = sma200.iloc[-2]
                 
+                sma_status = "Neutral"
+                if prev_price < prev_sma and current_price > current_sma:
+                    sma_status = "🚀 Breakout (OBEN)"
+                elif prev_price > prev_sma and current_price < current_sma:
+                    sma_status = "⚠️ Breakdown (UNTEN)"
+                elif current_price > current_sma:
+                    sma_status = "Trend: Bullisch"
+                else:
+                    sma_status = "Trend: Bärisch"
+
+                # 3. WKN (Info-Abruf dauert etwas, daher Fehler abfangen)
+                wkn = "N/A"
+                try: wkn = stock.info.get('isin', 'N/A') # ISIN ist oft zuverlässiger als WKN
+                except: pass
+
                 hits.append({
-                    "Aktie": t.replace(".DE", ""), 
-                    "Vol-Faktor": vol_ratio, 
-                    "Perf %": perf, 
+                    "Aktie": t.replace(".DE", ""),
+                    "ISIN/WKN": wkn,
+                    "Vol-Faktor": vol_ratio,
+                    "Perf %": perf,
                     "RSI (14)": rsi,
-                    "Preis": round(hist['Close'].iloc[-1], 2)
+                    "200-Tage-Check": sma_status,
+                    "Preis": round(current_price, 2)
                 })
             progress_bar.progress((i + 1) / len(selected_list))
         except: continue
@@ -84,35 +104,26 @@ if st.button(f"Scan starten"):
     if hits:
         df = pd.DataFrame(hits)
         
-        # --- ALARM SEKTION ---
-        top_hits = df[df['Vol-Faktor'] >= vol_threshold].sort_values("Vol-Faktor", ascending=False)
-        if not top_hits.empty:
-            st.error(f"🚨 ALARM: {len(top_hits)} Aktien mit extremem Volumen gefunden!")
-            cols = st.columns(len(top_hits[:3])) # Zeige Top 3 als Metrik
-            for idx, row in enumerate(top_hits.iloc[:3].iterrows()):
-                with cols[idx]:
-                    st.metric(label=row[1]['Aktie'], value=f"Vol: {row[1]['Vol-Faktor']}", delta=f"{row[1]['Perf %']}%")
+        # --- SMA ALARM ---
+        breakouts = df[df['200-Tage-Check'].str.contains("Break")]
+        if not breakouts.empty:
+            st.success(f"📈 Signal an der 200er Linie: {len(breakouts)} Treffer!")
+            st.table(breakouts[['Aktie', '200-Tage-Check', 'Preis']])
 
         # --- VISUALISIERUNG ---
-        st.subheader("Volumen vs. Relative Stärke (RSI)")
-        # Bubble Chart: X=RSI, Y=Volumen, Größe=Performance
-        fig = px.scatter(df, x="RSI (14)", y="Vol-Faktor", size=df['Perf %'].abs().add(1),
-                         color="Perf %", hover_name="Aktie",
-                         color_continuous_scale='RdYlGn', range_color=[-2, 2],
-                         title="RSI < 30 = Überverkauft | RSI > 70 = Überkauft")
-        # Referenzlinien für RSI
-        fig.add_vline(x=70, line_dash="dash", line_color="red", annotation_text="Überkauft")
-        fig.add_vline(x=30, line_dash="dash", line_color="green", annotation_text="Überverkauft")
+        st.subheader("Analyse-Matrix")
+        fig = px.scatter(df, x="RSI (14)", y="Vol-Faktor", color="200-Tage-Check",
+                         size=df['Perf %'].abs().add(1), hover_name="Aktie",
+                         title="Fokus: Volumen vs. Trend-Status")
         st.plotly_chart(fig, use_container_width=True)
         
         # --- TABELLE ---
-        st.subheader("Detail-Daten")
-        # Styling für die Tabelle
-        def color_rsi(val):
-            if val > 70: return 'background-color: #ffcccc' # Rot für teuer
-            if val < 30: return 'background-color: #ccffcc' # Grün für günstig
+        def color_sma(val):
+            if "OBEN" in val: return 'background-color: #00ff00; color: black'
+            if "UNTEN" in val: return 'background-color: #ff4b4b; color: white'
             return ''
-            
-        st.dataframe(df.sort_values("Vol-Faktor", ascending=False).style.map(color_rsi, subset=['RSI (14)']), use_container_width=True)
+
+        st.subheader("Detail-Daten")
+        st.dataframe(df.sort_values("Vol-Faktor", ascending=False).style.map(color_sma, subset=['200-Tage-Check']), use_container_width=True)
     else:
         st.warning("Keine Daten gefunden.")
