@@ -2,13 +2,11 @@ import requests
 import yfinance as yf
 
 # --- KONFIGURATION ---
-# Ersetze 'DEIN_TOPIC_NAME' mit dem Namen, den du in der ntfy-App abonniert hast.
-# WICHTIG: Er muss in der App und hier exakt gleich sein!
-NTFY_TOPIC = "DEIN_TOPIC_NAME" 
+# Dein festgelegter Topic-Name für die Push-Benachrichtigungen
+NTFY_TOPIC = "mein_trading_alarm_123" 
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 
-# Hier kannst du beliebig weitere Indizes hinzufügen
-# Format: "Name": "Ticker-Symbol"
+# Liste der Indizes, die überwacht werden sollen
 assets = {
     "DAX": "^GDAXI",
     "S&P 500": "^GSPC",
@@ -24,24 +22,25 @@ def send_push(message):
         print(f"Fehler beim Senden der Push-Nachricht: {e}")
 
 def check_market():
-    """Prüft die Indizes und vergleicht den Kurs mit dem GD200."""
+    """Prüft die Indizes und vergleicht den aktuellen Kurs mit dem GD200."""
     print("Starte Markt-Check...")
     
     for name, ticker in assets.items():
         try:
-            # Lade Daten für 1 Jahr (benötigt für den GD200)
+            # Lade Daten für 1 Jahr (benötigt für die Berechnung des GD200)
             df = yf.download(ticker, period="1y", interval="1d", progress=False)
             
             if df.empty:
                 print(f"Keine Daten für {name} erhalten.")
                 continue
                 
+            # Extrahiere den aktuellsten Schlusskurs und berechne den GD200
             current_price = float(df['Close'].iloc[-1])
             gd200 = float(df['Close'].rolling(window=200).mean().iloc[-1])
             
             print(f"{name}: Kurs {current_price:.2f} | GD200: {gd200:.2f}")
             
-            # Logik: Wenn Kurs über GD200 (kannst du hier ändern auf <, falls gewünscht)
+            # Logik: Prüfen, ob der Kurs über dem GD200 liegt
             if current_price > gd200:
                 message = f"ALARM: {name} über GD200! Kurs: {current_price:.2f} (GD200: {gd200:.2f})"
                 send_push(message)
