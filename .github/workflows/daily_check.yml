@@ -1,8 +1,8 @@
 name: Market Monitor
 on:
   schedule:
-    - cron: '*/15 * * * *' # Alle 15 Minuten
-  workflow_dispatch: # Ermöglicht manuelles Starten zum Testen
+    - cron: '*/15 * * * *' # Läuft alle 15 Minuten
+  workflow_dispatch: # Ermöglicht dir, es jederzeit manuell zu starten
 
 jobs:
   run-script:
